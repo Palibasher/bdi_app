@@ -6,6 +6,16 @@ import matplotlib.dates as mdates
 # Загрузка файла
 uploaded_file = st.file_uploader("Загрузите Excel-файл", type=["xlsx"])
 
+def empty_date_checker(df, selected_date):
+    df_copy = df.copy()
+    df_copy['ArchiveDate'] = pd.to_datetime(df_copy['ArchiveDate'])
+    selected_date = pd.to_datetime(selected_date)
+
+    dates_array = df_copy[(df_copy['GroupDesc'] == 'BFA Cape') & (df_copy['ArchiveDate'] == selected_date)]
+
+    return not dates_array.empty  # Вернем True, если есть данные, иначе False
+
+
 if uploaded_file:
     df = pd.read_excel(uploaded_file, parse_dates=['ArchiveDate', 'StartDate'])
 
@@ -14,6 +24,11 @@ if uploaded_file:
 
     # Выбор даты через календарь (ограничиваем min и max)
     selected_date = st.date_input("Выберите дату", min_date, min_value=min_date, max_value=max_date)
+
+    if empty_date_checker(df, selected_date):
+        st.write("Данные найдены!")
+    else:
+        st.write("Данных за эту дату нет.")
 
     # Переключатель для отображения фактических данных
     full_data = st.selectbox("Выберите вариант отображения фактических данных:",
