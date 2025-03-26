@@ -3,6 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from datetime import timedelta
+from st_aggrid import GridOptionsBuilder
 
 # Загрузка файла
 uploaded_file = st.file_uploader("Загрузите Excel-файл", type=["xlsx"])
@@ -13,11 +14,11 @@ def empty_date_checker(df, selected_date):
     return not df[(df['GroupDesc'] == 'BFA Cape') & (df['ArchiveDate'] == selected_date)].empty
 
 if uploaded_file:
-    df = pd.read_excel(uploaded_file, parse_dates=['ArchiveDate', 'StartDate'])
-    df['ArchiveDate'] = pd.to_datetime(df['ArchiveDate'])  # Убедимся, что тип datetime
+    df = pd.read_excel(uploaded_file, parse_dates=['ArchiveDate', 'StartDate', 'GroupDesc'])
+    df['ArchiveDate'] = pd.to_datetime(df['ArchiveDate'], format='%Y-%m-%d', errors='coerce')  # Убедимся, что тип datetime
 
-    min_date = df['ArchiveDate'].min()
-    max_date = df['ArchiveDate'].max()
+    min_date = df.loc[df['GroupDesc'] == 'BFA Cape', 'ArchiveDate'].min()
+    max_date = df.loc[df['GroupDesc'] == 'BFA Cape', 'ArchiveDate'].max()
 
     # Выбор режима
     mode = st.radio("Выберите режим", ["Одна дата", "Несколько дат"])
@@ -45,28 +46,15 @@ if uploaded_file:
     elif mode == "Несколько дат":
         # Выбор месяца
         available_months = sorted(df['ArchiveDate'].dt.strftime('%Y-%m').unique(), reverse=True)
-        selected_month = st.selectbox("Выберите месяц", available_months)
+        selected_months = st.multiselect("Выберите месяц", available_months)
 
-        # Фильтруем даты по выбранному месяцу
-        available_dates = df[df['ArchiveDate'].dt.strftime('%Y-%m') == selected_month]['ArchiveDate'].unique()
-        selected_dates = st.multiselect("Выберите даты", sorted(available_dates), format_func=lambda x: x.strftime('%Y-%m-%d'))
-
+        available_dates = df[df['ArchiveDate'].dt.strftime('%Y-%m').isin(selected_months)]['ArchiveDate'].unique()
+        selected_dates = st.multiselect("Выберите даты", sorted(available_dates),
+                                        format_func=lambda x: x.strftime('%Y-%m-%d'))
         if not selected_dates:
             st.write("⚠️ Выберите хотя бы одну дату.")
             st.stop()
 
-        # Проверяем, что выбранные даты содержат данные
-        valid_dates = []
-        for date in selected_dates:
-            if empty_date_checker(df, date):
-                valid_dates.append(date)
-            else:
-                st.warning(f"Данных за дату {date.strftime('%Y-%m-%d')} нет.")
-        selected_dates = valid_dates
-
-        if not selected_dates:
-            st.write("⚠️ Нет данных для выбранных дат.")
-            st.stop()
 
     # Переключатель для отображения фактических данных
     full_data = st.selectbox("Выберите вариант отображения фактических данных:",
@@ -74,14 +62,17 @@ if uploaded_file:
 
     # Выбор типа прогноза
     if mode == "Одна дата":
-        forecast_type = st.selectbox("Выберите тип прогноза",
-                                 ['Все', 'Monthly Contract (MON)', 'Quarterly Contract (Q)', 'Calendar Year Contract (CAL)'])
+        forecast_types = st.multiselect("Выберите тип прогноза",
+                                        ['Monthly Contract (MON)', 'Quarterly Contract (Q)',
+                                         'Calendar Year Contract (CAL)'],
+                                        default=['Monthly Contract (MON)'])
     else:
-        forecast_type = st.selectbox("Выберите тип прогноза",
-                                     ['Monthly Contract (MON)', 'Quarterly Contract (Q)',
-                                      'Calendar Year Contract (CAL)'])
+        forecast_types = st.multiselect("Выберите тип прогноза",
+                                        ['Monthly Contract (MON)', 'Quarterly Contract (Q)',
+                                         'Calendar Year Contract (CAL)'],
+                                        default=['Monthly Contract (MON)'])
     # Функция для построения графика
-    def plot_ffa_forecast(df, full_data, forecast_type, dates):
+    def plot_ffa_forecast(df, full_data, forecast_types, dates):
         """Построение графика для нескольких прогнозных дат"""
         plt.figure(figsize=(12, 6))
 
@@ -102,13 +93,15 @@ if uploaded_file:
             'Quarterly Contract (Q)': 'green',
             'Calendar Year Contract (CAL)': 'red'
         }
+        combined_subsets = []
 
         if len(dates) == 1:
-            for category, color in categories.items():
-                if forecast_type == 'Все' or forecast_type == category:
-                    forecast_data = df[df['ArchiveDate'] == dates[0]]
-                    subset = forecast_data[forecast_data['Category'] == category]
-                    plt.plot(subset['StartDate'], subset['RouteAverage'], 'o-', color=color, label=category)
+            for category in forecast_types:
+                forecast_data = df[df['ArchiveDate'] == dates[0]]
+                subset = forecast_data[forecast_data['Category'] == category]
+                subset_for_print = subset[['Category', 'ArchiveDate', 'RouteAverage','Index_Label']]
+                combined_subsets.append(subset_for_print)
+                plt.plot(subset['StartDate'], subset['RouteAverage'], 'o-', color=categories[category], label=category)
         else:
 
             colors = ['orange', 'purple', 'brown', 'pink', 'cyan', 'magenta', 'lime', 'navy', 'teal', 'gold']
@@ -116,12 +109,12 @@ if uploaded_file:
 
             for date in dates:
                 forecast_data = df[df['ArchiveDate'] == date]
-
-                for category, color in categories.items():
-                    if forecast_type == 'Все' or forecast_type == category:
-                        subset = forecast_data[forecast_data['Category'] == category]
-                        plt.plot(subset['StartDate'], subset['RouteAverage'], 'o-',
-                                 color=date_colors[date], label=f"{category} ({date.strftime('%Y-%m-%d')})", alpha=0.8)
+                for i,category in enumerate(forecast_types):
+                    subset = forecast_data[forecast_data['Category'] == category]
+                    subset_for_print = subset[['Category','ArchiveDate', 'RouteAverage', 'Index_Label']]
+                    plt.plot(subset['StartDate'], subset['RouteAverage'], 'o-', color=date_colors[date],
+                             label=f"{category} ({date.strftime('%Y-%m-%d')})", alpha=0.8)
+                    combined_subsets.append(subset_for_print)
 
         # Настройки графика
         plt.xlabel("Дата")
@@ -136,7 +129,33 @@ if uploaded_file:
 
         st.pyplot(plt, clear_figure=True)  # Выводим график в Streamlit
 
+        # Объедините все DataFrame в один
+        combined_df = pd.concat(combined_subsets, ignore_index=True)
+        combined_df['ArchiveDate'] = combined_df['ArchiveDate'].dt.strftime('%Y-%m-%d')
+        combined_df['Index_Label'] = combined_df['Index_Label'].str.split("_").str[1]
+
+        # Теперь вы можете использовать combined_df по своему усмотрению
+        unique_values = combined_df['Category'].unique()
+
+        for value in unique_values:
+            filtered_df = combined_df[combined_df['Category'] == value]
+            st.subheader(value)
+
+
+            df_cleaned = filtered_df.drop(columns=['Category'])
+
+            # Делаем pivot, чтобы 'Index_Label' стал столбцами
+            df_pivoted = df_cleaned.pivot(index='ArchiveDate', columns='Index_Label', values='RouteAverage')
+
+            # Выводим результат
+            st.dataframe(df_pivoted, width=1000)
+
+
+
+
+
+
     # Построение графика после выбора параметров
     if st.button("Построить график") and selected_dates:
-        plot_ffa_forecast(df, full_data, forecast_type, selected_dates)
+        plot_ffa_forecast(df, full_data, forecast_types, selected_dates)
 
