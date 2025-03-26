@@ -98,7 +98,7 @@ if uploaded_file:
             for category in forecast_types:
                 forecast_data = df[df['ArchiveDate'] == dates[0]]
                 subset = forecast_data[forecast_data['Category'] == category]
-                subset_for_print = subset[['Category', 'ArchiveDate', 'RouteAverage','Index_Label']]
+                subset_for_print = subset[['Category', 'ArchiveDate', 'RouteAverage','Index_Label', 'StartDate']]
                 combined_subsets.append(subset_for_print)
                 plt.plot(subset['StartDate'], subset['RouteAverage'], 'o-', color=categories[category], label=category)
         else:
@@ -110,7 +110,7 @@ if uploaded_file:
                 forecast_data = df[df['ArchiveDate'] == date]
                 for i,category in enumerate(forecast_types):
                     subset = forecast_data[forecast_data['Category'] == category]
-                    subset_for_print = subset[['Category','ArchiveDate', 'RouteAverage', 'Index_Label']]
+                    subset_for_print = subset[['Category','ArchiveDate', 'RouteAverage', 'Index_Label', 'StartDate']]
                     plt.plot(subset['StartDate'], subset['RouteAverage'], 'o-', color=date_colors[date],
                              label=f"{category} ({date.strftime('%Y-%m-%d')})", alpha=0.8)
                     combined_subsets.append(subset_for_print)
@@ -141,10 +141,14 @@ if uploaded_file:
             st.subheader(value)
 
 
-            df_cleaned = filtered_df.drop(columns=['Category'])
+            df_cleaned = filtered_df.drop(columns=['Category']).sort_values(by='StartDate')
+
+            index_label_startdate_pairs = list(zip(df_cleaned['Index_Label'], df_cleaned['StartDate']))
+            sorted_index_labels = list(dict.fromkeys([pair[0] for pair in index_label_startdate_pairs]))
 
             # Делаем pivot, чтобы 'Index_Label' стал столбцами
-            df_pivoted = df_cleaned.pivot(index='ArchiveDate', columns='Index_Label', values='RouteAverage')
+            df_pivoted = df_cleaned.pivot(index='ArchiveDate', columns='Index_Label', values='RouteAverage')[sorted_index_labels]
+            print(df_pivoted)
 
             # Выводим результат
             st.dataframe(df_pivoted, width=1000)
