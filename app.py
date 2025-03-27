@@ -15,7 +15,11 @@ st.markdown("""
         }
     </style>
 """, unsafe_allow_html=True)
-
+@st.cache_data
+def load_and_process_data(uploaded_file):
+    df = pd.read_excel(uploaded_file, parse_dates=['ArchiveDate', 'StartDate'])
+    df['ArchiveDate'] = pd.to_datetime(df['ArchiveDate'], format='%Y-%m-%d', errors='coerce')  # Приводим к единому типу
+    return df
 
 def empty_date_checker(df, selected_date):
     """Проверяет, есть ли данные для выбранной даты."""
@@ -28,7 +32,7 @@ uploaded_file = st.file_uploader("Загрузите Excel-файл", type=["xls
 col1, col2 = st.columns([1.7, 1])
 with col1:
     if uploaded_file:
-        df = pd.read_excel(uploaded_file, parse_dates=['ArchiveDate', 'StartDate'])
+        df = load_and_process_data(uploaded_file)
         df['ArchiveDate'] = pd.to_datetime(df['ArchiveDate'], format='%Y-%m-%d',
                                            errors='coerce')  # Убедимся, что тип datetime
 
