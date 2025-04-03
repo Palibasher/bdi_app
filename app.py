@@ -5,6 +5,13 @@ import matplotlib.dates as mdates
 from datetime import timedelta
 from bdi_plot_maker import plot_ffa_forecast
 
+
+@st.cache_data
+def load_and_process_data(uploaded_file):
+    df = pd.read_excel(uploaded_file, parse_dates=['ArchiveDate', 'StartDate'])
+    df['ArchiveDate'] = pd.to_datetime(df['ArchiveDate'], format='%Y-%m-%d', errors='coerce')  # Приводим к единому типу
+    return df
+
 st.markdown("""
     <style>
         .block-container {
@@ -15,20 +22,17 @@ st.markdown("""
         }
     </style>
 """, unsafe_allow_html=True)
-@st.cache_data
-def load_and_process_data(uploaded_file):
-    df = pd.read_excel(uploaded_file, parse_dates=['ArchiveDate', 'StartDate'])
-    df['ArchiveDate'] = pd.to_datetime(df['ArchiveDate'], format='%Y-%m-%d', errors='coerce')  # Приводим к единому типу
-    return df
+
 
 def empty_date_checker(df, selected_date):
     """Проверяет, есть ли данные для выбранной даты."""
     selected_date = pd.to_datetime(selected_date)  # Приводим к единому типу
-    return not df[(df['GroupDesc'] == 'BFA Cape') & (df['ArchiveDate'] == selected_date)].empty
+    return not df[(df['GroupDesc'] == 'C5TC FACT') & (df['ArchiveDate'] == selected_date)].empty
 
 
 # Загрузка файла
 uploaded_file = st.file_uploader("Загрузите Excel-файл", type=["xlsx"])
+
 col1, col2 = st.columns([1.7, 1])
 with col1:
     if uploaded_file:
@@ -73,14 +77,7 @@ with col1:
                 st.write("⚠️ Выберите хотя бы одну дату.")
                 st.stop()
 
-        # Выбор типа прогноза
-        if mode == "Одна дата":
-            forecast_types = st.multiselect("**Выберите тип прогноза**",
-                                            ['Monthly Contract (MON)', 'Quarterly Contract (Q)',
-                                             'Calendar Year Contract (CAL)'],
-                                            default=['Monthly Contract (MON)'])
-        else:
-            forecast_types = st.multiselect("**Выберите тип прогноза**",
+        forecast_types = st.multiselect("**Выберите тип прогноза**",
                                             ['Monthly Contract (MON)', 'Quarterly Contract (Q)',
                                              'Calendar Year Contract (CAL)'],
                                             default=['Monthly Contract (MON)'])
@@ -131,9 +128,20 @@ if uploaded_file:
         max_value=max_date.date(),
         value=(min_date.date(), max_date.date(),
                ))
+    historical_data_types = st.multiselect("**Исторические данные**",
+                                    ['C5TC FACT', 'P5TC FACT',
+                                     'Brent Oil','C5TC / P5TC'],
+                                    default=['C5TC FACT'])
+    if "Brent Oil" in historical_data_types and "C5TC / P5TC" in historical_data_types:
+        st.warning(
+            "Нельзя выбрать одновременно 'Brent Oil' и 'C5TC / P5TC'. Оставлена только первая выбранная метрика.")
+        historical_data_types.remove("C5TC / P5TC")  # Убираем C5TC / P5TC
+    if ("C5TC / P5TC" in historical_data_types) and ("C5TC FACT" not in historical_data_types or 'P5TC FACT' not in historical_data_types):
+        st.warning("Для расчета C5TC / P5TC необходимо выбрать оба показателя: C5TC FACT и P5TC FACT.")
+        st.stop()
 
     # Построение графика после выбора параметров
 if uploaded_file:
     if st.button("Построить график") and selected_dates:
-        plot_ffa_forecast(df, forecast_types, selected_dates, start_date, end_date, sma_90, sma_200, ewma_30, ewma_90,
+        plot_ffa_forecast(df,historical_data_types, forecast_types, selected_dates, start_date, end_date, sma_90, sma_200, ewma_30, ewma_90,
                           rolling_std_90, rolling_std_200)
