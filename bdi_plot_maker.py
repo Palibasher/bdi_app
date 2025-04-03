@@ -80,7 +80,7 @@ def plot_ffa_forecast(df,historical_data_types, forecast_types, dates, start_dat
             ax2.bar(filtered_merged_data['ArchiveDate'],
                     filtered_merged_data['RouteAverage_C5TC_P5TC_Ratio'] - 1,  # Отклонение от 1
                     color=['g' if x > 1 else 'r' for x in filtered_merged_data['RouteAverage_C5TC_P5TC_Ratio']],
-                    alpha=0.5,)
+                    alpha=0.4,)
 
             # Горизонтальная линия в 0 (где C5TC = P5TC)
             ax2.axhline(0, color='black', linestyle='--', linewidth=1)
