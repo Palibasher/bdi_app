@@ -201,9 +201,11 @@ class FFAForecastPlotter:
         for i, cat in enumerate(forecast_types):
             if cat not in category_colors:
                 category_colors[cat] = extra_colors[i % len(extra_colors)]
-
+        if len(dates) > 9 and not average_forcast_mode:
+            self.show_legend = False
         for date in dates:
             forecast_data = self.df[self.df['ArchiveDate'] == date]
+
             for category in forecast_types:
                 subset = forecast_data[forecast_data['Category'] == category]
                 self.combined_subsets.append(
@@ -224,14 +226,14 @@ class FFAForecastPlotter:
                 if cat_df.empty:
                     continue
                 avg_df = cat_df.groupby('StartDate', as_index=False)['RouteAverage'].mean()
-                print(avg_df)
                 avg_df = avg_df.sort_values('StartDate')
                 ax1.plot(avg_df['StartDate'], avg_df['RouteAverage'], '--',
                          color=category_colors[category],
                          label=f"{category} (Average)",
                          linewidth=2)
     def _finalize_plot(self, ax1):
-        ax1.legend(loc='upper right')
+        if getattr(self, 'show_legend', True):
+            ax1.legend(loc='upper right')
         ax1.set_title("FFA Forecast vs Actual", fontsize=16, color='darkblue')
         ax1.set_xlabel("Дата", fontsize=12, fontweight='light')
         ax1.set_ylabel("Route Average", fontsize=12, fontweight='light')
@@ -239,6 +241,7 @@ class FFAForecastPlotter:
         ax1.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
         ax1.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
         plt.xticks(rotation=45)
+
 
     def _prepare_combined_dataframe(self):
         combined_df = pd.concat(self.combined_subsets, ignore_index=True)
