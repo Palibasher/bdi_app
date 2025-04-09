@@ -82,22 +82,28 @@ if uploaded_file:
                 st.stop()
 
 
+
+
         elif mode == "Месяц целиком":
-            # Выбор месяца
-            available_months = sorted(df['ArchiveDate'].dt.strftime('%Y-%m').unique(), reverse=True)
-            selected_months = st.multiselect("Выберите месяц", available_months)
-
+            # Доступные месяцы
+            bfa_df = df[df['GroupDesc'] == 'BFA Cape']
+            available_months = sorted(bfa_df['ArchiveDate'].dt.strftime('%Y-%m').unique(), reverse=True)
+            default_month = available_months[1] if len(available_months) > 1 else available_months[
+                0] if available_months else None
+            selected_months = st.multiselect("Выберите месяц", available_months,
+                                             default=[default_month] if default_month else [])
             if selected_months:
-                # Для выбранного месяца находим все даты
-                selected_month = selected_months[0]  # Берем первый выбранный месяц
-                available_dates = df[df['ArchiveDate'].dt.strftime('%Y-%m') == selected_month]['ArchiveDate'].unique()
-
-                # Отображаем все даты для выбранного месяца
-                selected_dates = sorted(available_dates)
-
-
+                selected_dates = []
+                for selected_month in selected_months:
+                    month_dates = df[
+                        (df['GroupDesc'] == 'BFA Cape') &  # <-- добавили этот фильтр
+                        (df['ArchiveDate'].dt.strftime('%Y-%m') == selected_month)
+                        ]['ArchiveDate'].unique()
+                    selected_dates.extend(month_dates)
+                selected_dates = sorted(set(selected_dates))
             else:
                 selected_dates = []
+
         forecast_types = st.multiselect("**Выберите тип прогноза**",
                                         ['Monthly Contract (MON)', 'Quarterly Contract (Q)',
                                          'Calendar Year Contract (CAL)'],
@@ -105,7 +111,6 @@ if uploaded_file:
         if not forecast_types:
             st.warning("⚠️ Пожалуйста, выберите хотя бы один тип прогноза.")
             st.stop()  # Останавливает дальнейшее выполнение кода, если нет выбора
-
 
     with col2:
         # Заголовок
@@ -146,7 +151,6 @@ if uploaded_file:
 
         average_forcast_mode = st.checkbox("Усреднить прогнозы", value=True if mode == "Месяц целиком" else False)
 
-
     start_date, end_date = st.slider(
         "**Выберите диапазон дат**",
         min_value=min_date.date(),
@@ -177,4 +181,5 @@ if uploaded_file:
                                  ewma_90=ewma_90,
                                  rolling_std_90=rolling_std_90,
                                  rolling_std_200=rolling_std_200)
-    plotter.plot_forecast(historical_data_types, forecast_types, selected_dates, start_date, end_date, average_forcast_mode)
+    plotter.plot_forecast(historical_data_types, forecast_types, selected_dates, start_date, end_date,
+                          average_forcast_mode)
