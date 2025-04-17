@@ -148,8 +148,16 @@ if uploaded_file:
 
     with col3:
         st.markdown("Доп.настройки")
+        average_forcast_mode = st.checkbox(
+            "Усреднить прогнозы",
+            value=False
+        )
 
-        average_forcast_mode = st.checkbox("Усреднить прогнозы", value=True if mode == "Месяц целиком" else False)
+        average_forcast_mode_group = st.checkbox(
+            "+ Cгруппировать",
+            value=False,
+            disabled=not average_forcast_mode
+        )
 
     start_date, end_date = st.slider(
         "**Выберите диапазон дат**",
@@ -182,4 +190,4 @@ if uploaded_file:
                                  rolling_std_90=rolling_std_90,
                                  rolling_std_200=rolling_std_200)
     plotter.plot_forecast(historical_data_types, forecast_types, selected_dates, start_date, end_date,
-                          average_forcast_mode)
+                          average_forcast_mode,average_forcast_mode_group)
