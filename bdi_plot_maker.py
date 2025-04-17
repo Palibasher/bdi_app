@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import numpy as np
 import streamlit as st
+from collections import Counter
 
 
 class FFAForecastPlotter:
@@ -187,7 +188,7 @@ class FFAForecastPlotter:
             else:
                 ax1.plot(category_data['ArchiveDate'], category_data['RouteAverage'], label=f'Actual ({data_type})')
 
-    def _plot_forecasts(self, ax1, forecast_types, dates, average_forcast_mode):
+    def _plot_forecasts(self, ax1, forecast_types, dates, average_forcast_mode, average_forcast_mode_group):
         self.combined_subsets.clear()
 
         category_colors = {
@@ -196,41 +197,74 @@ class FFAForecastPlotter:
             'Calendar Year Contract (CAL)': 'red'
         }
 
-        # Назначим дополнительные цвета, если категорий больше
         extra_colors = ['orange', 'purple', 'brown', 'pink', 'cyan', 'magenta']
         for i, cat in enumerate(forecast_types):
             if cat not in category_colors:
                 category_colors[cat] = extra_colors[i % len(extra_colors)]
+
         if len(dates) > 9 and not average_forcast_mode:
             self.show_legend = False
+
         for date in dates:
             forecast_data = self.df[self.df['ArchiveDate'] == date]
 
             for category in forecast_types:
                 subset = forecast_data[forecast_data['Category'] == category]
                 self.combined_subsets.append(
-                    subset[['Category', 'ArchiveDate', 'RouteAverage', 'Index_Label', 'StartDate']])
+                    subset[['Category', 'ArchiveDate', 'RouteAverage', 'Index_Label', 'StartDate']].copy()
+                )
 
-                # Отрисовываем, только если не режим среднего
                 if not average_forcast_mode:
                     ax1.plot(subset['StartDate'], subset['RouteAverage'], 'o-',
                              color=category_colors[category],
                              label=f"{category} ({date.strftime('%Y-%m-%d')})",
                              alpha=0.8)
 
-        # Добавляем среднюю линию, если режим average
+        # --- Средний режим ---
         if average_forcast_mode:
             combined_df = pd.concat(self.combined_subsets, ignore_index=True)
+
+            # Добавим колонку MonthYear
+            combined_df['MonthYear'] = combined_df['StartDate'].dt.to_period('M')
+
             for category in forecast_types:
                 cat_df = combined_df[combined_df['Category'] == category]
                 if cat_df.empty:
                     continue
-                avg_df = cat_df.groupby('StartDate', as_index=False)['RouteAverage'].mean()
-                avg_df = avg_df.sort_values('StartDate')
-                ax1.plot(avg_df['StartDate'], avg_df['RouteAverage'], '--',
-                         color=category_colors[category],
-                         label=f"{category} (Average)",
-                         linewidth=2)
+
+                if average_forcast_mode_group:
+                    # Группируем по ArchiveDate
+                    grouped = cat_df.groupby('ArchiveDate')
+
+                    seen_month_sets = {}
+
+                    for archive_date, group in grouped:
+                        month_set = tuple(sorted(group['MonthYear'].astype(str)))
+                        if month_set not in seen_month_sets:
+                            seen_month_sets[month_set] = []
+                        seen_month_sets[month_set].append(group)
+
+                    for month_set, group_list in seen_month_sets.items():
+                        if len(group_list) > 1:
+                            merged = pd.concat(group_list)
+                            # Убедимся, что отсортировано по дате
+                            month_label = month_set[0] if month_set else "?"
+                            merged['StartDate'] = merged['StartDate'].astype('datetime64[ns]')
+                            avg_df = merged.groupby('StartDate', as_index=False)['RouteAverage'].mean()
+                            avg_df = avg_df.sort_values('StartDate')
+                            print(avg_df)
+                            ax1.plot(avg_df['StartDate'], avg_df['RouteAverage'], '--',
+                                     color=category_colors[category],
+                                     label=f"{category} - {month_label}",
+                                     linewidth=2)
+                else:
+                    # Обычное усреднение по StartDate
+                    avg_df = cat_df.groupby('StartDate', as_index=False)['RouteAverage'].mean()
+                    avg_df = avg_df.sort_values('StartDate')
+                    ax1.plot(avg_df['StartDate'], avg_df['RouteAverage'], '--',
+                             color=category_colors[category],
+                             label=f"{category} (Average)",
+                             linewidth=2)
     def _finalize_plot(self, ax1):
         if getattr(self, 'show_legend', True):
             ax1.legend(loc='upper right')
@@ -263,7 +297,7 @@ class FFAForecastPlotter:
             st.dataframe(df_pivoted, width=1000)
 
 
-    def plot_forecast(self, historical_data_types, forecast_types, dates, start_date, end_date,average_forcast_mode):
+    def plot_forecast(self, historical_data_types, forecast_types, dates, start_date, end_date, average_forcast_mode,average_forcast_mode_group):
         fig, ax1 = plt.subplots(figsize=(16, 8))
         start_datetime = pd.to_datetime(start_date)
         end_datetime = pd.to_datetime(end_date)
@@ -275,7 +309,7 @@ class FFAForecastPlotter:
         fig.autofmt_xdate()
 
         self._plot_historical_data(ax1, actual_data_period, historical_data_types)
-        self._plot_forecasts(ax1, forecast_types, dates, average_forcast_mode)
+        self._plot_forecasts(ax1, forecast_types, dates, average_forcast_mode,average_forcast_mode_group)
         self._compute_indicators(ax1, historical_data_types,start_datetime,end_datetime)
         self._finalize_plot(ax1)
         st.pyplot(plt, clear_figure=True)
