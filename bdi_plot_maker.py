@@ -226,13 +226,72 @@ class FFAForecastPlotter:
 
             # Добавим колонку MonthYear
             combined_df['MonthYear'] = combined_df['StartDate'].dt.to_period('M')
+            combined_df['QuarterStart'] = combined_df['StartDate'].dt.to_period('Q').dt.start_time
 
             for category in forecast_types:
                 cat_df = combined_df[combined_df['Category'] == category]
+                print(category)
                 if cat_df.empty:
                     continue
+                if average_forcast_mode_group == "Месяца до кварталов" and category == 'Monthly Contract (MON)':
+                    print("start")
+                    # Создаем столбец с началом квартала
+                    cat_df['QuarterStart'] = cat_df['StartDate'].apply(
+                        lambda x: pd.Timestamp(year=x.year, month=((x.month - 1) // 3) * 3 + 1, day=1))
 
-                if average_forcast_mode_group:
+                    # Группируем по ArchiveDate
+                    grouped = cat_df.groupby('ArchiveDate')
+
+                    # Словарь для хранения данных по кварталам
+                    seen_quarter_sets = {}
+
+                    for archive_date, group in grouped:
+                        # Определяем квартал для каждой строки
+                        quarter_set = tuple(sorted(group['QuarterStart'].astype(str).unique()))
+
+                        # Принт для отладки
+                        print(f"ArchiveDate: {archive_date} -> quarter_set: {quarter_set}")
+
+                        # Убираем из quarter_set лишние кварталы, если их несколько
+                        if len(quarter_set) > 1:
+                            # Берем только первый квартал (по логике, это и есть нужный квартал)
+                            quarter_set = (quarter_set[0],)
+                            print(f"Warning: More than one quarter for {archive_date}, using the first one.")
+
+                        if quarter_set not in seen_quarter_sets:
+                            seen_quarter_sets[quarter_set] = []
+                        seen_quarter_sets[quarter_set].append(group)
+
+                    # Проверим, сколько данных собралось в каждом квартале
+                    print(f"Total quarters: {len(seen_quarter_sets)}")
+
+                    for quarter_set, group_list in seen_quarter_sets.items():
+                        # Объединяем все данные по кварталу
+                        merged = pd.concat(group_list)
+                        print(f"Quarter: {quarter_set[0]} -> Merged data count: {len(merged)}")
+
+                        # Сортируем по дате
+                        merged['StartDate'] = merged['StartDate'].astype('datetime64[ns]')
+
+                        # Группируем по дате и усредняем значения
+                        avg_df = merged.groupby('StartDate', as_index=False)['RouteAverage'].mean()
+                        avg_df = avg_df.sort_values('StartDate')
+
+                        # Определяем метку для квартала
+                        quarter_label = quarter_set[0] if quarter_set else "?"
+                        quarter_dt = pd.to_datetime(quarter_label)
+                        quarter_num = (quarter_dt.month - 1) // 3 + 1
+                        label = f"{category} - {quarter_dt.year}-Q{quarter_num}"
+
+                        # Рисуем одну линию для всего квартала
+                        ax1.plot(avg_df['StartDate'], avg_df['RouteAverage'], '--',
+                                 color=category_colors[category],
+                                 label=label,
+                                 linewidth=2)
+
+                        print(f"Quarter label: {label}, Number of points in avg_df: {len(avg_df)}")
+
+                elif average_forcast_mode_group == "Месяцам" or category != 'Monthly Contract (MON)':
                     # Группируем по ArchiveDate
                     grouped = cat_df.groupby('ArchiveDate')
 
@@ -252,7 +311,6 @@ class FFAForecastPlotter:
                             merged['StartDate'] = merged['StartDate'].astype('datetime64[ns]')
                             avg_df = merged.groupby('StartDate', as_index=False)['RouteAverage'].mean()
                             avg_df = avg_df.sort_values('StartDate')
-                            print(avg_df)
                             ax1.plot(avg_df['StartDate'], avg_df['RouteAverage'], '--',
                                      color=category_colors[category],
                                      label=f"{category} - {month_label}",
