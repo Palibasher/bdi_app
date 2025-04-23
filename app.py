@@ -147,17 +147,24 @@ if uploaded_file:
         ewma_30 = st.checkbox("30-дневная экспоненциальная скользящая средняя", value=False)
 
     with col3:
-        st.markdown("Доп.настройки")
+        st.markdown("### Доп. настройки")
         average_forcast_mode = st.checkbox(
             "Усреднить прогнозы",
             value=False
         )
 
-        average_forcast_mode_group = st.checkbox(
-            "+ Cгруппировать",
-            value=False,
+        group_options = {
+            "Месяцам": "month",
+            "Кварталам": "quarter"
+        }
+
+        average_forcast_mode_group = st.selectbox(
+            "Группировать при усреднении по:",
+            options=[False, "Месяцам","Месяца до кварталов"],
+            index=0,
             disabled=not average_forcast_mode
         )
+
 
     start_date, end_date = st.slider(
         "**Выберите диапазон дат**",
