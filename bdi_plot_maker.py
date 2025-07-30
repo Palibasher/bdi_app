@@ -20,7 +20,7 @@ class FFAForecastPlotter:
     def _compute_indicators(
             self,
             ax1,
-            historical_data_types,start_datetime,end_datetime,
+            historical_data_types, start_datetime, end_datetime,
             data_flag=False):
         if self.sma_90: self.df['SMA_90'] = np.nan
         if self.sma_200: self.df['SMA_200'] = np.nan
@@ -140,9 +140,19 @@ class FFAForecastPlotter:
                     (ewma_90_df['ArchiveDate'] <= end_datetime)
                     ]
                 print(f"Plotting EWMA_90 for category {category}")  # Добавил вывод
-                ax1.plot(ewma_90_df_filtered['ArchiveDate'], ewma_90_df_filtered['EWMA_90'], 'm-', alpha=0.6, label=f'90-day EWMA ({category})')
+                ax1.plot(ewma_90_df_filtered['ArchiveDate'], ewma_90_df_filtered['EWMA_90'], 'm-', alpha=0.6,
+                         label=f'90-day EWMA ({category})')
 
-    def _plot_historical_data(self, ax1, actual_data_period, historical_data_types):
+    def _plot_historical_data(self, ax1, actual_data_period, historical_data_types, low_thresholds,
+                              high_thresholds):
+        if low_thresholds is None:
+            low_thresholds = []
+        if high_thresholds is None:
+            high_thresholds = []
+
+        # Инициализируем DataFrame для возврата в самом начале
+        final_signals_to_display = pd.DataFrame()
+
         for data_type in historical_data_types:
             category_data = actual_data_period[actual_data_period['Category'] == data_type]
             if data_type == "Brent Oil":
@@ -153,40 +163,85 @@ class FFAForecastPlotter:
                     actual_data_period[actual_data_period['Category'] == "Brent Oil"]['RouteAverage'].min() * 0.9,
                     actual_data_period[actual_data_period['Category'] == "Brent Oil"]['RouteAverage'].max() * 1.1)
                 ax1.plot([], [], 'g-', label='Brent Oil (Second Y-Axis)')
+
             elif data_type == "C5TC / P5TC":
                 ax2 = ax1.twinx()
                 c5tc_data = actual_data_period[actual_data_period['Category'] == 'C5TC FACT']
                 p5tc_data = actual_data_period[actual_data_period['Category'] == 'P5TC FACT']
-                # Объединяем эти два DataFrame по общей дате (предполагаем, что даты совпадают)
+
+                if c5tc_data.empty or p5tc_data.empty:
+                    continue
+
                 merged_data = pd.merge(c5tc_data[['ArchiveDate', 'RouteAverage']],
                                        p5tc_data[['ArchiveDate', 'RouteAverage']], on='ArchiveDate',
                                        suffixes=('_C5TC', '_P5TC'))
-                merged_data['RouteAverage_C5TC_P5TC_Ratio'] = merged_data['RouteAverage_C5TC'] / merged_data[
-                    'RouteAverage_P5TC']
+                merged_data['Ratio'] = merged_data['RouteAverage_C5TC'] / merged_data['RouteAverage_P5TC']
 
-                # Задаем минимальные и максимальные значения для отображения
-                start_datetime = actual_data_period['ArchiveDate'].min()
-                end_datetime = actual_data_period['ArchiveDate'].max()
-                filtered_merged_data = merged_data[
-                    (merged_data['ArchiveDate'] >= start_datetime) & (merged_data['ArchiveDate'] <= end_datetime)]
+                ax2.bar(merged_data['ArchiveDate'],
+                        merged_data['Ratio'],
+                        color=['g' if x > 1 else 'r' for x in merged_data['Ratio']],
+                        alpha=0.3)
 
-                # Построение графика соотношения C5TC/P5TC без вычитания 1
-                ax2.bar(filtered_merged_data['ArchiveDate'],
-                        filtered_merged_data['RouteAverage_C5TC_P5TC_Ratio'],
-                        color=['g' if x > 1 else 'r' for x in filtered_merged_data['RouteAverage_C5TC_P5TC_Ratio']],
-                        alpha=0.4)  # Увеличиваем прозрачность
+                merged_data['Ratio_prev'] = merged_data['Ratio'].shift(1)
+                merged_data.dropna(inplace=True)
 
+                all_signals = []
+                for threshold in low_thresholds:
+                    signals = merged_data[
+                        (merged_data['Ratio'] < threshold) & (merged_data['Ratio_prev'] >= threshold)].copy()
+                    if not signals.empty:
+                        signals['Type'] = 'L'
+                        signals['Threshold'] = threshold
+                        all_signals.append(signals)
 
+                for threshold in high_thresholds:
+                    signals = merged_data[
+                        (merged_data['Ratio'] > threshold) & (merged_data['Ratio_prev'] <= threshold)].copy()
+                    if not signals.empty:
+                        signals['Type'] = 'S'
+                        signals['Threshold'] = threshold
+                        all_signals.append(signals)
 
-                # Легенда для графика
+                if all_signals:
+                    final_signals_df = pd.concat(all_signals, ignore_index=True)
+                    final_signals_df['YearMonth'] = final_signals_df['ArchiveDate'].dt.to_period('M')
+                    final_signals_df.sort_values('ArchiveDate', inplace=True)
+
+                    filtered_signals = final_signals_df.drop_duplicates(subset=['YearMonth', 'Type'], keep='first')
+
+                    # Присваиваем результат переменной, которую вернем в конце
+                    final_signals_to_display = filtered_signals
+                else:
+                    filtered_signals = pd.DataFrame()
+
+                if not filtered_signals.empty:
+                    low_signals_to_plot = filtered_signals[filtered_signals['Type'] == 'L']
+                    if not low_signals_to_plot.empty:
+                        ax2.scatter(low_signals_to_plot['ArchiveDate'], low_signals_to_plot['Ratio'],
+                                    color='blue', marker='^', s=120, zorder=5,
+                                    label=f'Low Signal (пробой вниз)')
+                        for i, point in low_signals_to_plot.iterrows():
+                            ax2.text(point['ArchiveDate'], point['Ratio'] + 0.05, f"L\n({point['Threshold']})",
+                                     ha='center', va='bottom', color='blue', fontsize=10, fontweight='bold')
+
+                    high_signals_to_plot = filtered_signals[filtered_signals['Type'] == 'S']
+                    if not high_signals_to_plot.empty:
+                        ax2.scatter(high_signals_to_plot['ArchiveDate'], high_signals_to_plot['Ratio'],
+                                    color='purple', marker='v', s=120, zorder=5,
+                                    label=f'High Signal (пробой вверх)')
+                        for i, point in high_signals_to_plot.iterrows():
+                            ax2.text(point['ArchiveDate'], point['Ratio'] - 0.05, f"S\n({point['Threshold']})",
+                                     ha='center', va='top', color='purple', fontsize=10, fontweight='bold')
+
                 ax1.plot([], [], 'g-', label='C5TC / P5TC Ratio')
-
-                # Настройки осей
                 ax2.set_ylabel("C5TC / P5TC Ratio", color='g')
-                ax2.set_ylim(min(filtered_merged_data['RouteAverage_C5TC_P5TC_Ratio']) * 0.9,
-                             max(filtered_merged_data['RouteAverage_C5TC_P5TC_Ratio']) * 1.1)
+                if not merged_data.empty:
+                    ax2.set_ylim(min(merged_data['Ratio']) * 0.85, max(merged_data['Ratio']) * 1.15)
             else:
                 ax1.plot(category_data['ArchiveDate'], category_data['RouteAverage'], label=f'Actual ({data_type})')
+
+        # Гарантированный возврат DataFrame в конце функции
+        return final_signals_to_display
 
     def _plot_forecasts(self, ax1, forecast_types, dates, average_forcast_mode, average_forcast_mode_group):
         self.combined_subsets.clear()
@@ -323,6 +378,7 @@ class FFAForecastPlotter:
                              color=category_colors[category],
                              label=f"{category} (Average)",
                              linewidth=2)
+
     def _finalize_plot(self, ax1):
         if getattr(self, 'show_legend', True):
             ax1.legend(loc='upper right')
@@ -334,14 +390,12 @@ class FFAForecastPlotter:
         ax1.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
         plt.xticks(rotation=45)
 
-
     def _prepare_combined_dataframe(self):
         combined_df = pd.concat(self.combined_subsets, ignore_index=True)
         combined_df['ArchiveDate'] = combined_df['ArchiveDate'].dt.strftime('%Y-%m-%d')
         combined_df['Index_Label'] = combined_df['Index_Label'].str.split("_").str[1]
         # Теперь вы можете использовать combined_df по своему усмотрению
         unique_values = combined_df['Category'].unique()
-
 
         for value in unique_values:
             filtered_df = combined_df[combined_df['Category'] == value]
@@ -350,12 +404,13 @@ class FFAForecastPlotter:
             index_label_startdate_pairs = list(zip(df_cleaned['Index_Label'], df_cleaned['StartDate']))
             sorted_index_labels = list(dict.fromkeys([pair[0] for pair in index_label_startdate_pairs]))
             # Делаем pivot, чтобы 'Index_Label' стал столбцами
-            df_pivoted = df_cleaned.pivot(index='ArchiveDate', columns='Index_Label', values='RouteAverage')[sorted_index_labels]
+            df_pivoted = df_cleaned.pivot(index='ArchiveDate', columns='Index_Label', values='RouteAverage')[
+                sorted_index_labels]
             # Выводим результат
             st.dataframe(df_pivoted, width=1000)
 
-
-    def plot_forecast(self, historical_data_types, forecast_types, dates, start_date, end_date, average_forcast_mode,average_forcast_mode_group):
+    def plot_forecast(self, historical_data_types, forecast_types, dates, start_date, end_date, average_forcast_mode,
+                      average_forcast_mode_group, low_thresholds, high_thresholds):
         fig, ax1 = plt.subplots(figsize=(16, 8))
         start_datetime = pd.to_datetime(start_date)
         end_datetime = pd.to_datetime(end_date)
@@ -366,14 +421,16 @@ class FFAForecastPlotter:
             ]
         fig.autofmt_xdate()
 
-        self._plot_historical_data(ax1, actual_data_period, historical_data_types)
-        self._plot_forecasts(ax1, forecast_types, dates, average_forcast_mode,average_forcast_mode_group)
-        self._compute_indicators(ax1, historical_data_types,start_datetime,end_datetime)
+        # --- ИСПРАВЛЕНИЕ: ОДИН вызов, результат которого сохраняется ---
+        triggered_signals_df = self._plot_historical_data(ax1, actual_data_period, historical_data_types,
+                                                          low_thresholds, high_thresholds)
+
+        # Остальные вызовы
+        self._plot_forecasts(ax1, forecast_types, dates, average_forcast_mode, average_forcast_mode_group)
+        self._compute_indicators(ax1, historical_data_types, start_datetime, end_datetime)
         self._finalize_plot(ax1)
         st.pyplot(plt, clear_figure=True)
         self._prepare_combined_dataframe()
 
-
-
-        # # Объедините все DataFrame в один
-        # self._prepare_combined_dataframe()
+        # --- ИСПРАВЛЕНИЕ: Возвращаем полученный DataFrame ---
+        return triggered_signals_df
